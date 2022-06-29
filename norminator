@@ -1,0 +1,300 @@
+#!/usr/bin/env python3
+#########################
+#     NORMINATOR V0.1   #
+# By mguerra and ypages #
+#########################
+import os
+import sys
+import glob
+import datetime
+import re
+
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+class data:
+	operators = ["-", "+", "=", "/", "*", "<", ">", "!"]
+	inc_dec = ["++", "--"]
+	double_operators = [f"{x}=" for x in operators]
+	types = ["int", "char", "long", "size_t"]
+	prefixed_types = ["static", "unsigned", "const", "while", "if", "else if"]
+	double = [f"{s} {x}" for x in types for s in ["const", "unsigned", "static"]]
+
+class Formatter:
+	def __init__(self, file):
+		self.file = file
+		self.content = None
+		self.backup = None
+		self.header_created = None
+		self.includes = []
+		self.spaced_types = [
+			"static", "unsigned", "const", "while", "if", "else if",
+		]
+		self.var_types = [
+			"int", "char", "long", "size_t",
+		]
+		self.double_var_types = [s + " " + x for s in ["const", "unsigned", "static"] for x in self.var_types]
+		self.return_types = [s + " " + x for s in ["const", "unsigned", "static"] for x in self.var_types] + self.var_types
+		# sys.exit()
+		print(f"Parsing {file}")
+		self.load(file)
+
+	def replace_header(self):
+		user = os.getenv("USER")
+		updated_space = 17 - len(user)
+		updated_space = " ".join(["" for x in range(updated_space + 1)])
+		if self.content[0:2] != "/*":
+			file_name = os.path.basename(self.file)
+			name_space = 51 - len(os.path.basename(file_name))
+			name_space = " ".join(["" for x in range(name_space + 1)])
+			email = f"{user}@student.42.fr"
+			user_space = 43 - (len(user) + 3 + len(email))
+			user_space = " ".join(["" for x in range(user_space + 1)])
+			creation_date = str(datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S"))
+			header = f"""/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   {file_name}{name_space}:+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: {user} <{email}>{user_space}+#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: {creation_date} by {user}{updated_space} #+#    #+#             */
+/*   Updated: {creation_date} by {user}{updated_space}###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+"""
+			self.content = header + self.content
+			
+		
+		update_date = str(datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S"))
+		self.content = re.sub(f'^\/\*   Updated.*', f'/*   Updated: {update_date} by {user}{updated_space}###   ########.fr       */', self.content, flags=re.M)
+		if self.header_created is not None:
+			self.content = re.sub(f'^\/\*   Created.*', self.header_created, self.content, flags=re.M)
+
+		headers = "\n".join(self.includes)
+		self.content = re.sub(r'\/\* *\*\/\n\/\* \** \*\/(?!\n\n)', f"""/*                                                                            */
+/* ************************************************************************** */
+""", self.content, flags=re.M)
+		
+		self.content = re.sub(r'\/\* *\*\/\n\/\* \** \*\/\n\n', f"""/*                                                                            */
+/* ************************************************************************** */
+
+{headers}
+
+""", self.content, flags=re.M)
+
+	def r(self, pattern, replace):
+			self.content = re.sub(pattern, replace, self.content)
+		
+	def replace_syntax(self):
+		# Operators + - / * = < > 
+		for x in data.operators:
+			self.r(f'\s*(\{x})\s*', r' \1 ') # Replace [\t  operator   \t] with [ operator ]
+		# Operators ++ -- += -= /= *= >= <= 
+		for x in data.double_operators:
+			self.content = re.sub(f'\s*(\{x[0]}\s*\{x[1]})\s*', r' \1 ', self.content)
+			self.content = re.sub(f'\{x[0]}\s*\{x[1]}', x, self.content)
+		# for x in data.inc_dec:
+		# 	self.content = re.sub(f'\s*(\{x[0]}\s*\{x[1]})\s*', r'\1', self.content)
+		# 	self.content = re.sub(f'\{x[0]}\s*\{x[1]}', x, self.content)
+
+		# End of instructions ;
+		self.content = re.sub(f'\s*;', f';', self.content)
+		# return statement, space when empty
+		self.content = re.sub(r'return;', r'return ;', self.content)
+		self.content = re.sub(r'return\s*\(', r'return (', self.content)
+
+		#Pointer spacing
+		self.content = re.sub(r'\*\s([a-z]*[A-Z]*[0-9]*);', r'*\1;', self.content) #* i -> *i
+		self.content = re.sub(r'\*\s([a-z]*[A-Z]*[0-9]*)\)', r'*\1)', self.content) #* i -> *i
+
+		# Comma
+		self.content = re.sub('\s*,\s*', ', ', self.content)
+
+
+		self.content = re.sub('#\s*include\s*"', '#include "', self.content)
+		self.content = re.sub('#\s*include\s*<', '#include <', self.content)
+		self.content = re.sub(r'\n\n*', r'\n', self.content)
+		self.content = re.sub(r'\*\s*', f'*', self.content)
+		self.content = re.sub('\)[ ]*\{', ')\n\t{', self.content)
+		self.content = re.sub('\(\s*', '(', self.content)
+		self.content = re.sub('\s*\)', ')', self.content)
+		self.content = re.sub('\!\s*', '!', self.content)
+
+		
+
+	def replace_vars_declaration(self):
+		for type in self.spaced_types:
+			self.content = re.sub(f'{type}\s*', f'{type} ', self.content)
+		for type in self.var_types:
+			self.content = re.sub(f'(?<!\(){type}\s*', f'{type}	', self.content)
+
+			self.content = re.sub(f'\({type}\s*', f'({type} ', self.content)
+			self.content = re.sub(f'}}\n{type}\t([a-z]*)\(', 
+			r'}\n\n' + f'{type}' + r'\t\1(', self.content)
+		splitted = self.content.split("\n")
+		previous = None
+		in_declare_block = False
+		tmp = []
+		for line in splitted:
+			for rtype in self.return_types:
+				res = re.search(f'(?<!\(){rtype}\s*.*;', line)
+				if res is not None:
+					if rtype in ["int"]:
+						line = re.sub(f'{rtype}\s*', f'{rtype}\t\t\t\t\t', line)
+					elif rtype in self.var_types[1:]:
+						line = re.sub(f'{rtype}\s*', f'{rtype}\t\t\t\t', line)
+					elif rtype in self.double_var_types:
+						line = re.sub(f'{rtype}\s*', f'{rtype}\t\t', line)
+					in_declare_block = True
+					break
+			if res is None and in_declare_block is True:
+				tmp.append("")
+				in_declare_block = False
+			tmp.append(line)
+		self.content = "\n".join(tmp)
+		self.content = re.sub(f'long\s*long', f'long long', self.content)
+		self.content = re.sub(f'long\s*int', f'long int', self.content)
+
+	def parse_include(self):
+		splitted = self.content.split("\n")
+		tmp = []
+		for line in splitted:
+			if "#include" in line:
+				self.includes.append(line)
+			else:
+				tmp.append(line)
+		self.content = "\n".join(tmp)
+
+				
+	def format(self):
+		# TODO: Parsing return; (empty statement)
+
+		# Capture previous Created timestamp
+		if self.content[0:2] == "/*":
+			self.header_created = re.search(f'^\/\*   Created.*', self.content, flags=re.M)[0]
+			self.content = "\n".join(self.content.split("\n")[12:])
+		# print(f"CONTENT BEFORE\n{self.content}")
+		
+		self.replace_syntax()
+		self.parse_include()
+		self.replace_vars_declaration()
+		self.replace_header()
+
+		# print(f"CONTENT AFTER\n{self.content}")
+
+		return self
+
+
+	def save(self):
+		os.makedirs(".norminator", exist_ok=True)
+		dirname = os.path.dirname(self.file)
+		if dirname != "":
+			os.makedirs(".norminator/" + os.path.dirname(self.file), exist_ok=True)
+		with open(".norminator/" + self.file + ".bak"+str(datetime.datetime.now()), "w+") as f:
+			f.write(self.backup)
+		with open(self.file, "w+") as f:
+			f.write(self.content)
+		return self
+
+	def load(self, file):
+		self.content = load_file(file)
+		self.backup = self.content
+		return self
+
+def load_file(file):
+	try:
+		with open(file, "r") as f:
+			return f.read()
+		
+	except OSError:
+		print("Could not open/read file:", file)
+		sys.exit()
+
+def save_file(file, content):
+	try:
+		with open(file, "w+") as f:
+			f.write(content)
+	except OSError:
+		print("Could not write file:", file)
+		sys.exit()
+
+def tests():
+	os.makedirs(".norminator", exist_ok=True)
+	for x in sorted(glob.glob("tests/*")):
+		name = re.sub("tests\/\d*-(.*)", r'\1', x)
+		f = Formatter(x).load(x)
+		f_splitted = f.content.split("\n")
+		check = None
+		for line in f_splitted:
+			if line == "":
+				continue
+			if line.startswith("#" + name):
+				check = line.split("|")[1]
+				print('')
+				print(name, ">", line.split("|")[0].split(name + " ")[1].rjust(15), end=' ')
+				continue
+			f.content = line
+			f.format()
+			# print(f"{line} > {f.content}", end= "")
+			if check == f.content:
+				print(f'{bcolors.BOLD}{bcolors.OKGREEN}OK{bcolors.ENDC}', end=' ')
+			else:
+				print(f"\nError [{f.content}] should be [{check}]")
+				break
+			# f.content = None
+		print('')
+		print('')
+
+
+	# dirname = os.path.dirname()
+	# f = Formatter("")
+
+def gen_tests():
+	files = ["operators", "double_operators"]
+	for (index, file) in enumerate(files):
+		idx = index+1
+		target = f"{idx:02}-{file}"
+		d = getattr(data, file)
+		test_file = []
+		print(target)
+		for x in d:
+			test_file.append(f"#{file} {x}|x {x} x")
+			test_file.append(f"x{x}x")
+			test_file.append(f"x {x}x")
+			test_file.append(f"x{x} x")
+			test_file.append(f"x {x} x")
+			test_file.append(f"x 	{x}	 x")
+			if file == "double_operators":
+				test_file.append(f"x 	{x[0]} 	{x[1]}	 x")
+		save_file(f"tests/{target}", "\n".join(test_file))
+
+
+def main():
+	print("Start")
+	if len(sys.argv) == 2 and sys.argv[1] == "tests":
+		tests()
+		return
+	if len(sys.argv) == 2 and sys.argv[1] == "gen_tests":
+		gen_tests()
+		return
+	files = []
+	if len(sys.argv) > 1:
+		files = sys.argv[1:]
+	else:
+		for f in glob.glob('**/*.c', recursive=True):
+			files.append(f)
+	print(f"Norminator for files: {files}")
+	for f in files:
+		Formatter(f).load(f).format().save()
+
+main()
