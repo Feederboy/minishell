@@ -80,7 +80,7 @@ char	*get_absolute_path(t_cmd *cmd)
 		return (NULL);
 	if (validate(s) || is_builtin(cmd) >= 0)
 	{
-		if (is_builtin(cmd) >= 0)
+		if ((*s) == '/' && is_builtin(cmd) >= 0)
 			return (s);
 		if (check_relative(s))
 			return (check_relative(s));
